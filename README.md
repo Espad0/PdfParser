@@ -1,0 +1,110 @@
+# Invoice Parser Bot
+
+AI-powered Telegram bot that extracts structured data from invoice documents in any language.
+
+## Features
+
+- Accepts invoices as **PDF files** or **photos** (JPEG, PNG, WebP) via Telegram
+- Uses **Claude** (multimodal LLM) to extract text and structured fields from documents
+- Extracts **10 key fields** + all **line items**
+- **Validates** extracted data (cross-checks totals, VAT, line item sums)
+- Returns results as a **structured message** + **Excel file** attachment
+
+## Extracted Fields
+
+| # | Field | Description |
+|---|-------|-------------|
+| 1 | Invoice Number | Document reference / order number |
+| 2 | Invoice Date | Normalized to YYYY-MM-DD |
+| 3 | Supplier Name | Vendor / seller name |
+| 4 | Supplier Address | Full address |
+| 5 | Client Name | Buyer / customer name |
+| 6 | Client Address | Full address |
+| 7 | Supplier Tax ID | VAT / company registration number |
+| 8 | Client Tax ID | VAT / company registration number |
+| 9 | Total (excl. VAT) | Pre-tax total |
+| 10 | Total (incl. VAT) | Final total with tax |
+
+Additional: currency, VAT rate, VAT amount, and all line items with description, quantity, unit price, unit, and total.
+
+## Setup
+
+### Prerequisites
+
+- Python 3.11+
+- A Telegram Bot token (create via [@BotFather](https://t.me/BotFather))
+- An Anthropic API key ([console.anthropic.com](https://console.anthropic.com))
+
+### Installation
+
+```bash
+cd HomeWork
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Get a Telegram Bot Token
+
+1. Open Telegram and search for [@BotFather](https://t.me/BotFather).
+2. Send `/newbot` and follow the prompts — choose a name and a username for your bot.
+3. BotFather will reply with a token like `7650525997:AAH...`. Copy it.
+
+### Get an Anthropic API Key
+
+1. Go to [console.anthropic.com](https://console.anthropic.com) and sign in (or create an account).
+2. Navigate to **API Keys** in the left sidebar.
+3. Click **Create Key**, give it a name, and copy the key (it starts with `sk-ant-...`).
+4. Make sure you have credits or a payment method on your account — API calls are billed per usage.
+
+### Configuration
+
+Create a `.env` file in the project root and paste both values:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=7650525997:AAH...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The bot will refuse to start if either variable is missing or still set to a placeholder.
+
+### Run
+
+```bash
+python main.py
+```
+
+## Usage
+
+1. Open your bot in Telegram
+2. Send `/start` to see instructions
+3. Send an invoice (PDF file or photo)
+4. Receive structured extraction results + Excel file
+
+## Project Structure
+
+```
+├── main.py          # Entry point
+├── bot.py           # Telegram bot handlers and response formatting
+├── extractor.py     # Claude API integration for document parsing
+├── validator.py     # Data validation and cross-checks
+├── excel_export.py  # Excel workbook generation
+├── config.py        # Configuration and environment variables
+├── requirements.txt
+├── .env.example
+├── architecture.md  # High-level scalable architecture (optional)
+└── sample_invoice.pdf
+```
+
+## Design Decisions
+
+- **Claude (LMM)**: Chosen for native multimodal support — processes PDFs and images directly without a separate OCR step. Handles multilingual documents natively.
+- **Structured JSON extraction**: Single-pass prompt returns validated JSON, avoiding fragile regex or template-matching approaches.
+- **Validation layer**: Cross-checks totals and line items to catch extraction errors before returning results.
+- **Excel output**: Uses openpyxl for clean, styled spreadsheets that are immediately usable.
