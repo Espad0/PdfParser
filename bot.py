@@ -4,6 +4,7 @@ import html
 import logging
 import tempfile
 import traceback
+from datetime import date
 
 from telegram import Update
 from telegram.ext import (
@@ -14,12 +15,35 @@ from telegram.ext import (
     filters,
 )
 
-from config import MAX_FILE_SIZE_MB, SUPPORTED_MIME_TYPES, TELEGRAM_BOT_TOKEN
+from config import MAX_FILE_SIZE_MB, RATE_LIMIT_GLOBAL, SUPPORTED_MIME_TYPES, TELEGRAM_BOT_TOKEN
 from excel_export import create_excel
 from extractor import extract_invoice_data
 from validator import validate
 
 logger = logging.getLogger(__name__)
+
+# In-memory global daily request counter (resets on date change or restart)
+_daily_counter: dict[str, int] = {}  # {"YYYY-MM-DD": count}
+
+
+def _check_global_limit() -> str | None:
+    """Return an error message if the global daily limit is reached, else None."""
+    today = date.today().isoformat()
+    # Prune old entries
+    for key in list(_daily_counter):
+        if key != today:
+            del _daily_counter[key]
+    count = _daily_counter.get(today, 0)
+    if count >= RATE_LIMIT_GLOBAL:
+        logger.warning("Global daily limit reached (%d/%d)", count, RATE_LIMIT_GLOBAL)
+        return "Daily processing limit reached. Please try again tomorrow."
+    return None
+
+
+def _record_request():
+    """Increment today's global counter."""
+    today = date.today().isoformat()
+    _daily_counter[today] = _daily_counter.get(today, 0) + 1
 
 WELCOME_TEXT = (
     "Welcome to Invoice Parser Bot!\n\n"
@@ -80,6 +104,12 @@ async def handle_other(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _process_file(update: Update, file_id: str, mime_type: str):
     """Download file, extract data, validate, and reply with results + Excel."""
+    # Check global daily limit before spending API credits
+    limit_msg = _check_global_limit()
+    if limit_msg:
+        await update.message.reply_text(limit_msg)
+        return
+
     status_msg = await update.message.reply_text("Processing your invoice...")
 
     try:
@@ -90,6 +120,7 @@ async def _process_file(update: Update, file_id: str, mime_type: str):
         # Extract fields via Claude
         await status_msg.edit_text("Extracting invoice data with AI...")
         data = extract_invoice_data(bytes(file_bytes), mime_type)
+        _record_request()
 
         # Validate
         validation = validate(data)
