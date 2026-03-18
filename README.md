@@ -102,6 +102,36 @@ python main.py
 └── sample_invoice.pdf
 ```
 
+## Security
+
+The bot processes untrusted user-uploaded documents via an LLM, which creates a prompt injection attack surface. The following defenses are in place:
+
+### Prompt Injection Mitigation
+
+- **System/user prompt separation**: Extraction instructions are passed via Claude's `system` parameter, which the model treats with higher authority than user-message content. This makes it significantly harder for text embedded in a malicious PDF or image to override the bot's behavior.
+- **Explicit anti-injection instructions**: The system prompt tells the model to never follow instructions found inside the document and to ignore any override attempts.
+- **Strict output schema enforcement**: LLM output is run through `_sanitize_output()` which only keeps whitelisted keys, coerces numeric fields to `float`, truncates strings to 500 characters, and caps line items at 500. Any unexpected keys injected by a manipulated response are silently stripped.
+
+### Output Escaping
+
+- **HTML escaping**: Every LLM-extracted value is passed through `html.escape()` before being embedded in the Telegram HTML message, preventing HTML/script injection via crafted invoice data.
+- **Validation messages escaped**: Error and warning strings from the validator are also HTML-escaped before display.
+
+### Information Disclosure Prevention
+
+- **Generic user-facing errors**: Exception details (stack traces, raw LLM output) are logged server-side only. Users see a generic "processing failed" message.
+- **No input reflection**: User-controlled values (e.g., MIME type) are not echoed back in error messages.
+
+### Credential Handling
+
+- API keys and tokens are loaded from a `.env` file which is excluded from version control via `.gitignore`.
+- The bot refuses to start if credentials are missing or set to placeholder values.
+
+### Input Validation
+
+- Only whitelisted MIME types (PDF, JPEG, PNG, WebP, GIF) are accepted.
+- File size is capped at 20 MB before any processing occurs.
+
 ## Design Decisions
 
 - **Claude (LMM)**: Chosen for native multimodal support — processes PDFs and images directly without a separate OCR step. Handles multilingual documents natively.

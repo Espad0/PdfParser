@@ -1,5 +1,6 @@
 """Telegram bot for invoice document parsing."""
 
+import html
 import logging
 import tempfile
 import traceback
@@ -47,8 +48,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if mime not in SUPPORTED_MIME_TYPES:
         await update.message.reply_text(
-            f"Unsupported file type: {mime}\n"
-            "Please send a PDF or image (JPEG/PNG/WebP)."
+            "Unsupported file type. Please send a PDF or image (JPEG/PNG/WebP)."
         )
         return
 
@@ -117,8 +117,15 @@ async def _process_file(update: Update, file_id: str, mime_type: str):
     except Exception as exc:
         logger.error("Processing failed: %s", traceback.format_exc())
         await status_msg.edit_text(
-            f"Sorry, processing failed:\n{type(exc).__name__}: {exc}"
+            "Sorry, processing failed. Please try again with a different file."
         )
+
+
+def _esc(value, fallback: str = "N/A") -> str:
+    """HTML-escape a value from LLM output to prevent injection."""
+    if value is None:
+        return fallback
+    return html.escape(str(value))
 
 
 def _format_response(data: dict, validation) -> str:
@@ -126,29 +133,29 @@ def _format_response(data: dict, validation) -> str:
     fields = data.get("fields", {})
     items = data.get("line_items", [])
 
-    currency = fields.get("currency", "")
+    currency = _esc(fields.get("currency"), "")
 
     lines = ["<b>Invoice #{}</b>  |  {}".format(
-        fields.get("invoice_number", "N/A"),
-        fields.get("invoice_date", "N/A"),
+        _esc(fields.get("invoice_number")),
+        _esc(fields.get("invoice_date")),
     )]
 
     # Parties
     lines.append("")
     lines.append(
-        f"<b>Supplier:</b> {fields.get('supplier_name', 'N/A')}"
-        f"\n{fields.get('supplier_address', '')}"
-        f"\nTax ID: {fields.get('supplier_tax_id', 'N/A')}"
+        f"<b>Supplier:</b> {_esc(fields.get('supplier_name'))}"
+        f"\n{_esc(fields.get('supplier_address'), '')}"
+        f"\nTax ID: {_esc(fields.get('supplier_tax_id'))}"
     )
     lines.append("")
     lines.append(
-        f"<b>Client:</b> {fields.get('client_name', 'N/A')}"
-        f"\n{fields.get('client_address', '')}"
-        f"\nTax ID: {fields.get('client_tax_id', 'N/A')}"
+        f"<b>Client:</b> {_esc(fields.get('client_name'))}"
+        f"\n{_esc(fields.get('client_address'), '')}"
+        f"\nTax ID: {_esc(fields.get('client_tax_id'))}"
     )
 
     # Totals
-    vat_rate = fields.get("vat_rate", "N/A")
+    vat_rate = _esc(fields.get("vat_rate"))
     vat_amount = fields.get("vat_amount")
     lines.append("")
     lines.append(
@@ -162,8 +169,8 @@ def _format_response(data: dict, validation) -> str:
     lines.append("")
     lines.append(f"<b>Line Items ({len(items)}):</b>")
     for i, item in enumerate(items, 1):
-        desc = item.get("description", "N/A")
-        qty = item.get("quantity", "?")
+        desc = _esc(item.get("description"))
+        qty = _esc(item.get("quantity"), "?")
         total = _fmt_num(item.get("total"))
         lines.append(f"{i}. {desc} — {qty} x {_fmt_num(item.get('unit_price', 0))} = {total}")
 
@@ -173,11 +180,11 @@ def _format_response(data: dict, validation) -> str:
         if validation.errors:
             lines.append("<b>Errors:</b>")
             for e in validation.errors:
-                lines.append(f"- {e}")
+                lines.append(f"- {html.escape(e)}")
         if validation.warnings:
             lines.append("<b>Warnings:</b>")
             for w in validation.warnings:
-                lines.append(f"- {w}")
+                lines.append(f"- {html.escape(w)}")
 
     return "\n".join(lines)
 
@@ -188,7 +195,7 @@ def _fmt_num(value) -> str:
     try:
         return f"{float(value):,.2f}"
     except (TypeError, ValueError):
-        return str(value)
+        return html.escape(str(value))
 
 
 # ---- Application factory ----
