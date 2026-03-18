@@ -48,14 +48,22 @@ Also extract these supplementary fields:
 - vat_rate — The VAT/tax rate as a percentage string (e.g. "20%")
 - vat_amount — The VAT/tax amount (number only)
 
-Extract ALL line items. Each line item should have:
+If the document contains relevant invoice data not covered by the fields above
+(e.g., payment terms, due date, purchase order number, delivery address, bank
+details, discount amount), capture them in an "additional_fields" object with
+descriptive snake_case keys.
+
+Extract ALL line items. Each line item should have at minimum:
 - description — Item or service description
 - quantity — Number of units (number)
 - unit_price — Price per unit (number)
 - unit — Unit of measurement (e.g. "pc", "hour", "km", "h")
 - total — Total for the line item (number)
 
-Return ONLY a valid JSON object in this exact structure:
+If line items contain additional data (e.g., item_code, tax_rate, discount),
+include those as extra keys in each line item object.
+
+Return ONLY a valid JSON object following this structure:
 {
   "fields": {
     "invoice_number": "...",
@@ -72,6 +80,7 @@ Return ONLY a valid JSON object in this exact structure:
     "vat_rate": "...",
     "vat_amount": 0.0
   },
+  "additional_fields": {},
   "line_items": [
     {
       "description": "...",
@@ -87,6 +96,7 @@ Rules:
 - Numeric fields (totals, quantities, prices) must be JSON numbers, not strings.
 - If a field is not found in the document, use null.
 - Include every distinct line item, even if they belong to different sections.
+- Only include additional_fields that are clearly present in the document.
 """
 
 # Allowed keys and their expected types for strict output validation.
@@ -100,12 +110,24 @@ _ALLOWED_FIELD_KEYS = _EXPECTED_STRING_FIELDS | _EXPECTED_NUMERIC_FIELDS
 _ALLOWED_ITEM_KEYS = {"description", "quantity", "unit_price", "unit", "total"}
 _MAX_STRING_LENGTH = 500
 _MAX_LINE_ITEMS = 500
+_MAX_ADDITIONAL_FIELDS = 20
+_MAX_EXTRA_ITEM_KEYS = 10
+
+
+def _sanitize_value(val):
+    """Sanitize a single value: None passthrough, numbers to float, else truncated string."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return float(val)
+    return str(val)[:_MAX_STRING_LENGTH]
 
 
 def _sanitize_output(data: dict) -> dict:
-    """Enforce strict schema on LLM output to prevent data exfiltration and injection.
+    """Enforce schema on LLM output to prevent data exfiltration and injection.
 
-    Strips unexpected keys, truncates oversized strings, and enforces types.
+    Known fields are strictly validated. Extra keys are allowed through (sanitized)
+    for format flexibility. All strings are truncated and types are enforced.
     """
     raw_fields = data.get("fields", {})
     if not isinstance(raw_fields, dict):
@@ -146,9 +168,29 @@ def _sanitize_output(data: dict) -> dict:
                     clean[key] = None
             else:
                 clean[key] = str(val)[:_MAX_STRING_LENGTH]
+        # Allow extra keys through (sanitized) for format flexibility
+        extra_count = 0
+        for extra_key, extra_val in item.items():
+            if extra_key in _ALLOWED_ITEM_KEYS or extra_count >= _MAX_EXTRA_ITEM_KEYS:
+                continue
+            if not isinstance(extra_key, str) or not extra_key.isidentifier():
+                continue
+            clean[extra_key] = _sanitize_value(extra_val)
+            extra_count += 1
         items.append(clean)
 
-    return {"fields": fields, "line_items": items}
+    # Sanitize additional fields
+    raw_additional = data.get("additional_fields", {})
+    if not isinstance(raw_additional, dict):
+        raw_additional = {}
+
+    additional: dict = {}
+    for key, val in list(raw_additional.items())[:_MAX_ADDITIONAL_FIELDS]:
+        if not isinstance(key, str) or not key.isidentifier():
+            continue
+        additional[key] = _sanitize_value(val)
+
+    return {"fields": fields, "additional_fields": additional, "line_items": items}
 
 
 def extract_invoice_data(file_bytes: bytes, mime_type: str) -> dict:

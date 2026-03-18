@@ -63,10 +63,27 @@ def create_excel(data: dict) -> bytes:
             horizontal="left"
         )
 
+    # Additional fields (from format-flexible extraction)
+    for key, val in data.get("additional_fields", {}).items():
+        label = key.replace("_", " ").title()
+        ws_fields.append([label, _format_value(val)])
+        ws_fields.cell(row=ws_fields.max_row, column=2).alignment = Alignment(
+            horizontal="left"
+        )
+
     # --- Sheet 2: Line Items ---
     ws_items = wb.create_sheet("Line Items")
     col_keys = [c[0] for c in LINE_ITEM_COLUMNS]
     col_headers = [c[1] for c in LINE_ITEM_COLUMNS]
+
+    # Detect extra line item keys for format flexibility
+    known_keys = set(col_keys)
+    for item in data.get("line_items", []):
+        for key in item:
+            if key not in known_keys:
+                known_keys.add(key)
+                col_keys.append(key)
+                col_headers.append(key.replace("_", " ").title())
 
     ws_items.append(col_headers)
     for cell in ws_items[1]:
@@ -75,7 +92,8 @@ def create_excel(data: dict) -> bytes:
         cell.alignment = Alignment(horizontal="left")
 
     # Column widths
-    widths = [40, 12, 14, 10, 14]
+    base_widths = [40, 12, 14, 10, 14]
+    widths = base_widths + [14] * (len(col_keys) - len(base_widths))
     for i, w in enumerate(widths, 1):
         ws_items.column_dimensions[chr(64 + i)].width = w
 

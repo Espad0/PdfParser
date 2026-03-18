@@ -165,6 +165,15 @@ def _format_response(data: dict, validation) -> str:
         f"\n<b>Incl. VAT: {_fmt_num(fields.get('total_incl_vat'))}</b>"
     )
 
+    # Additional fields
+    additional = data.get("additional_fields", {})
+    if additional:
+        lines.append("")
+        lines.append("<b>Other Details:</b>")
+        for key, val in additional.items():
+            label = html.escape(key.replace("_", " ").title())
+            lines.append(f"{label}: {_esc(val)}")
+
     # Line items
     lines.append("")
     lines.append(f"<b>Line Items ({len(items)}):</b>")
