@@ -16,3 +16,4 @@ SUPPORTED_MIME_TYPES = {
 }
 
 MAX_FILE_SIZE_MB = 20
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4096"))

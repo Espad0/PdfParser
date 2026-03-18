@@ -4,6 +4,7 @@ import io
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 HEADER_FONT = Font(bold=True, size=11)
 HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
@@ -95,7 +96,7 @@ def create_excel(data: dict) -> bytes:
     base_widths = [40, 12, 14, 10, 14]
     widths = base_widths + [14] * (len(col_keys) - len(base_widths))
     for i, w in enumerate(widths, 1):
-        ws_items.column_dimensions[chr(64 + i)].width = w
+        ws_items.column_dimensions[get_column_letter(i)].width = w
 
     for item in data.get("line_items", []):
         row = [_format_value(item.get(k)) for k in col_keys]

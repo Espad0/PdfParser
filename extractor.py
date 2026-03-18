@@ -4,12 +4,18 @@ import base64
 import json
 import logging
 import re
+import time
 
 import anthropic
 
-from config import ANTHROPIC_API_KEY, MODEL_NAME
+from config import ANTHROPIC_API_KEY, MAX_TOKENS, MODEL_NAME
 
 logger = logging.getLogger(__name__)
+
+_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1  # seconds
 
 # System prompt is separated from user content to reduce prompt injection risk.
 # The model treats system instructions with higher authority than user messages,
@@ -207,8 +213,6 @@ def extract_invoice_data(file_bytes: bytes, mime_type: str) -> dict:
         ValueError: If Claude's response cannot be parsed as valid JSON.
         anthropic.APIError: On API-level failures.
     """
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-
     if mime_type == "application/pdf":
         doc_block = {
             "type": "document",
@@ -228,20 +232,38 @@ def extract_invoice_data(file_bytes: bytes, mime_type: str) -> dict:
             },
         }
 
-    response = client.messages.create(
-        model=MODEL_NAME,
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    doc_block,
-                    {"type": "text", "text": USER_PROMPT},
+    # Retry with exponential backoff on transient API errors
+    last_exc = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            response = _client.messages.create(
+                model=MODEL_NAME,
+                max_tokens=MAX_TOKENS,
+                system=SYSTEM_PROMPT,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            doc_block,
+                            {"type": "text", "text": USER_PROMPT},
+                        ],
+                    }
                 ],
-            }
-        ],
-    )
+            )
+            break
+        except (anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError) as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning("API call failed (attempt %d/%d), retrying in %ds: %s", attempt + 1, _MAX_RETRIES, delay, exc)
+                time.sleep(delay)
+            else:
+                logger.error("API call failed after %d attempts: %s", _MAX_RETRIES, exc)
+                raise
+
+    if response.stop_reason == "max_tokens":
+        logger.warning("Model response was truncated (hit max_tokens=%d)", MAX_TOKENS)
+        raise ValueError("Model response was truncated — invoice may be too complex or have too many line items.")
 
     raw_text = response.content[0].text.strip()
 
