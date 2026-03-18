@@ -23,7 +23,20 @@
                        └────────────┘   └───────────────┘  └─────────────┘
 ```
 
-## 2. Data Pipeline
+## 2. Current POC vs. Production: Throughput Gap
+
+The current proof-of-concept bot processes invoices sequentially (~1–3/min, limited by Claude API latency). The architecture below is designed to close this gap:
+
+| POC Limitation | Production Solution | Expected Improvement |
+|----------------|--------------------|-----------------------|
+| Sequential processing (1 doc at a time) | Horizontally scaled worker pool behind a task queue | Process N docs in parallel (N = worker count) |
+| Telegram polling | Webhook-based ingestion | Lower latency, no wasted poll cycles |
+| No retry on validation failure | Agentic retry-with-feedback loop (§4) | Higher first-pass accuracy, fewer manual corrections |
+| Single Claude model for all invoices | Model routing (Haiku for simple, Sonnet/Opus for complex) | Lower cost and latency for straightforward invoices |
+| No caching | Content-hash deduplication | Skip re-extraction for duplicate submissions |
+| No monitoring | Metrics, alerting, and data quality dashboards (§6) | Proactive issue detection, prompt improvement signals |
+
+## 3. Data Pipeline
 
 ### Ingestion Layer
 - **Telegram Bot Service**: Receives documents via Telegram Bot API. Runs as a stateless service behind a webhook (not polling) for production.
@@ -58,7 +71,7 @@ All channels normalize to a common internal message format:
 | Generated Excel files | S3 (ephemeral, TTL) | Temporary artifacts, auto-expire after delivery |
 | Job status & audit trail | PostgreSQL | Relational queries for reporting and monitoring |
 
-## 3. AI Agentic Workflow
+## 4. AI Agentic Workflow
 
 The extraction pipeline follows an **agentic pattern** with built-in self-correction:
 
@@ -78,7 +91,7 @@ Document ──► [Pre-check Agent] ──► [Extraction Agent] ──► [Val
 
 This retry-with-feedback loop significantly improves accuracy without requiring fine-tuning.
 
-## 4. Scalability Considerations
+## 5. Scalability Considerations
 
 ### Handling Increased Volume
 
@@ -105,7 +118,7 @@ This retry-with-feedback loop significantly improves accuracy without requiring 
 - **Caching**: Hash document content; skip re-extraction for duplicate submissions.
 - **Prompt optimization**: Keep prompts concise; avoid unnecessary instructions that increase token usage.
 
-## 5. Monitoring & Observability
+## 6. Monitoring & Observability
 
 - **Metrics**: Extraction latency (p50/p95/p99), success rate, validation pass rate, queue depth, worker utilization.
 - **Alerting**: Queue depth exceeding threshold, extraction error rate spike, LLM API error rate.

@@ -132,6 +132,38 @@ The bot processes untrusted user-uploaded documents via an LLM, which creates a 
 - Only whitelisted MIME types (PDF, JPEG, PNG, WebP, GIF) are accepted.
 - File size is capped at 20 MB before any processing occurs.
 
+## Throughput & Limits
+
+### Current Processing Model
+
+The bot processes invoices **sequentially** — one document at a time per bot instance. Each invoice goes through: file download → Claude API extraction → validation → Excel generation → response.
+
+### Processing Limits
+
+| Limit | Value | Source |
+|-------|-------|--------|
+| Max file size | 20 MB | `config.py` |
+| Max LLM output tokens | 4,096 | `extractor.py` |
+| Max line items per invoice | 500 | `extractor.py` |
+| Max string field length | 500 chars | `extractor.py` |
+| Max additional fields | 20 | `extractor.py` |
+| VAT cross-check tolerance | ±2% | `validator.py` |
+
+### Estimated Throughput
+
+| Metric | Estimate | Notes |
+|--------|----------|-------|
+| **Invoices per minute** | ~1–3 | Bottlenecked by Claude API latency (5–30s per call) |
+| **Concurrent users** | Sequential | Requests are queued; no parallel processing |
+
+### Bottlenecks
+
+1. **Claude API latency** — the dominant factor. Each invoice requires one multimodal API call; response time varies with document complexity.
+2. **Sequential processing** — handlers are async but each document is fully processed before the next one starts. No worker pool or task queue.
+3. **External rate limits** — Anthropic API rate limits (RPM/TPM, tier-dependent) and Telegram Bot API limits (~30 msgs/sec across chats) cap sustained throughput.
+
+For the scalable production architecture that addresses these limits, see [architecture.md](architecture.md).
+
 ## Design Decisions
 
 - **Claude (LMM)**: Chosen for native multimodal support — processes PDFs and images directly without a separate OCR step. Handles multilingual documents natively.
