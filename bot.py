@@ -119,7 +119,7 @@ async def _process_file(update: Update, file_id: str, mime_type: str):
 
         # Extract fields via Claude
         await status_msg.edit_text("Extracting invoice data with AI...")
-        data = extract_invoice_data(bytes(file_bytes), mime_type)
+        data = await extract_invoice_data(bytes(file_bytes), mime_type)
         _record_request()
 
         # Validate
@@ -243,7 +243,7 @@ def _fmt_num(value) -> str:
 
 def create_bot() -> Application:
     """Build and configure the Telegram bot application."""
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(True).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
