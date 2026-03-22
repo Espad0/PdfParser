@@ -1,10 +1,10 @@
 """Invoice field extraction using Claude's multimodal capabilities."""
 
+import asyncio
 import base64
 import json
 import logging
 import re
-import time
 
 import anthropic
 
@@ -12,7 +12,7 @@ from config import ANTHROPIC_API_KEY, MAX_TOKENS, MODEL_NAME
 
 logger = logging.getLogger(__name__)
 
-_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 1  # seconds
@@ -199,7 +199,7 @@ def _sanitize_output(data: dict) -> dict:
     return {"fields": fields, "additional_fields": additional, "line_items": items}
 
 
-def extract_invoice_data(file_bytes: bytes, mime_type: str) -> dict:
+async def extract_invoice_data(file_bytes: bytes, mime_type: str) -> dict:
     """Send document to Claude and extract structured invoice data.
 
     Args:
@@ -236,7 +236,7 @@ def extract_invoice_data(file_bytes: bytes, mime_type: str) -> dict:
     last_exc = None
     for attempt in range(_MAX_RETRIES):
         try:
-            response = _client.messages.create(
+            response = await _client.messages.create(
                 model=MODEL_NAME,
                 max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
@@ -256,7 +256,7 @@ def extract_invoice_data(file_bytes: bytes, mime_type: str) -> dict:
             if attempt < _MAX_RETRIES - 1:
                 delay = _RETRY_BASE_DELAY * (2 ** attempt)
                 logger.warning("API call failed (attempt %d/%d), retrying in %ds: %s", attempt + 1, _MAX_RETRIES, delay, exc)
-                time.sleep(delay)
+                await asyncio.sleep(delay)
             else:
                 logger.error("API call failed after %d attempts: %s", _MAX_RETRIES, exc)
                 raise
